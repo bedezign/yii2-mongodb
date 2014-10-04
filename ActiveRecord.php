@@ -12,8 +12,8 @@ namespace bedezign\yii2\mongodb;
 
 class ActiveRecord extends \yii\mongodb\ActiveRecord
 {
-	protected      $dynamicAttributes = [];
-	private static $_properties       = null;
+	protected        $dynamicAttributes = [];
+	protected static $_properties       = null;
 
 	public function addDynamicAttribute($name)
 	{
@@ -52,8 +52,8 @@ class ActiveRecord extends \yii\mongodb\ActiveRecord
 	public function attributes()
 	{
 		return array_merge(
-			array_keys($this->dynamicAttributes),
-			$this->publicProperties()
+			$this->publicProperties(),
+			array_keys($this->dynamicAttributes)
 		);
 	}
 
