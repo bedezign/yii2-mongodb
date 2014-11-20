@@ -1,23 +1,29 @@
 <?php
 /**
- * Improves the Yii2 MongoDB ActiveRecord class a little bit by allowing it to have "dynamic attributes".
- * Also, no need to implement the "attributes()" function if you are just using the public properties.
+ * Just a helper class that allows you to "accept all attributes" without having to define the functions for it every time.
+ * All attributes not being assigned to a public property or via a setter are considered "dynamic"
  *
  * @author    Steve Guns <steve@bedezign.com>
  * @package   com.bedezign.yii2.mongodb
  * @copyright 2014 B&E DeZign
+ *
+ * @todo Add "parseFromClassDocBlock for the properties
  */
 
 namespace bedezign\yii2\mongodb;
 
 class ActiveRecord extends \yii\mongodb\ActiveRecord
 {
-	protected        $attributes = [];
-	protected static $_properties       = null;
+	/**
+	 * @var string List of "dynamically added" (not public properties) attributes
+	 */
+	protected        $attributes  = [];
+	protected static $_properties = [];
 
 	public function addAttribute($name)
 	{
-		$this->attributes[$name] = null;
+		if (!isset($this->attributes[$name]))
+			$this->attributes[$name] = null;
 	}
 
 	public function addAttributes($names)
@@ -27,42 +33,57 @@ class ActiveRecord extends \yii\mongodb\ActiveRecord
 	}
 
 	/**
-	 * Determines if an activerecord has the specified property
+	 * Determines if an ActiveRecord has the specified property
 	 *
 	 * @param string $name
-	 * @param bool $dynamicOnly      if true it will only check the dynamically added attributes, not the regular ones
+	 * @param bool $dynamicOnly      if true it will only check the dynamically added attributes, not the public ones
 	 * @return bool
 	 */
 	public function hasAttribute($name, $dynamicOnly = false)
 	{
 		if (array_key_exists($name, $this->attributes))
 			return true;
-
 		return $dynamicOnly ? false : parent::hasAttribute($name);
 	}
 
-	/**
-	 * Determines the public properties for the model and returns them.
-	 * They are cached at class level.
-	 *
-	 * @return string[]
-	 */
-	public static function publicProperties()
+	public function canSetProperty($name, $checkVars = true, $checkBehaviors = true)
 	{
-		if (static::$_properties === null) {
-			$class = new \ReflectionClass(get_called_class());
+		if ($this->hasAttribute($name, true)) return true;
+		return parent::canSetProperty($name, $checkVars, $checkBehaviors);
+	}
+
+	/**
+	 * Fetches the class level doc-block and extracts all @property and @property-write tags.
+	 * If they are in the format <type> <$property> then they are considered a magicProperty
+	 *
+	 * @return string['property' => 'type']
+	 */
+	public static function magicProperties()
+	{
+		$class = get_called_class();
+		if (!isset(static::$_properties[$class])) {
+			$reflection = new \ReflectionClass($class);
+
 			$properties = [];
-			foreach ($class->getProperties(\ReflectionProperty::IS_PUBLIC) as $property)
-				if (!$property->isStatic())
-					$properties[] = $property->getName();
+			$docBlock = $reflection->getDocComment();
+			if ($docBlock) {
+				$pattern = '#^\s*\*\s+@property(?:-(\w*)){0,1}\s+(\S+)\s+(\$\S+).*$#im';
+				if (preg_match_all($pattern, $docBlock, $matches, PREG_SET_ORDER))
+					foreach ($matches as $match) {
+						if (empty($match[1]) || strtolower($match[1] == 'write')) {
+							// Only support writable properties
+							$properties[trim($match[3], '$')] = $match[2];
+						}
+					}
+				}
 
-			if (!in_array('_id', $properties))
-				array_unshift($properties, '_id');
+			if (!array_key_exists('_id', $properties))
+				$properties ['_id'] = 'MongoId';
 
-			static::$_properties = $properties;
+			static::$_properties[$class] = $properties;
 		}
 
-		return static::$_properties;
+		return static::$_properties[$class];
 	}
 
 	/**
@@ -73,7 +94,9 @@ class ActiveRecord extends \yii\mongodb\ActiveRecord
 	public function attributes()
 	{
 		return array_merge(
-			static::publicProperties(),
+			// Whatever magic was defined
+			array_keys(static::magicProperties()),
+			// Whatever "@runtime" was added
 			array_keys($this->attributes)
 		);
 	}
@@ -88,42 +111,8 @@ class ActiveRecord extends \yii\mongodb\ActiveRecord
 	public static function populateRecord($record, $row)
 	{
 		// Just figure out the dynamic attributes and then let the code work the regular way
-		$dynamic = array_diff(array_keys($row), $row->attributes());
-		$row->addAttributes($dynamic);
-
+		$dynamic = array_diff(array_keys($row), $record->attributes());
+		$record->addAttributes($dynamic);
 		parent::populateRecord($record, $row);
 	}
-
-	public function setAttribute($name, $value)
-	{
-		if (!$this->hasAttribute($name))
-			$this->addAttribute($name);
-
-		$this->$name = $value;
-	}
-
-	public function __get($name)
-	{
-		if ($this->hasAttribute($name, true))
-			return $this->attributes[$name];
-		else
-			return parent::__get($name);
-	}
-
-	public function __set($name, $value)
-	{
-		if ($this->hasAttribute($name, true))
-			$this->attributes[$name] = $value;
-		else
-			parent::__set($name, $value);
-	}
-
-	public function __unset($name)
-	{
-		if ($this->hasAttribute($name, true))
-			unset($this->attributes[$name]);
-		else
-			parent::__unset($name);
-	}
-
 }
