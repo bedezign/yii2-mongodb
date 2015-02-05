@@ -20,10 +20,10 @@ class ActiveRecord extends \yii\mongodb\ActiveRecord
 	protected        $attributes  = [];
 	protected static $_properties = [];
 
-	public function addAttribute($name)
+	public function addAttribute($name, $defaultValue = null)
 	{
-		if (!isset($this->attributes[$name]))
-			$this->attributes[$name] = null;
+		if (!$this->hasAttribute($name))
+			$this->attributes[$name] = $defaultValue;
 	}
 
 	public function addAttributes($names)
@@ -111,8 +111,10 @@ class ActiveRecord extends \yii\mongodb\ActiveRecord
 	public static function populateRecord($record, $row)
 	{
 		// Just figure out the dynamic attributes and then let the code work the regular way
-		$dynamic = array_diff(array_keys($row), $record->attributes());
-		$record->addAttributes($dynamic);
+		if ($row) {
+			$dynamic = array_diff(array_keys($row), $record->attributes());
+			$record->addAttributes($dynamic);
+		}
 		parent::populateRecord($record, $row);
 	}
 }
